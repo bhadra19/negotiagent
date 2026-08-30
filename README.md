@@ -22,6 +22,10 @@ Every selected offer must come from an approved vendor, satisfy the budget and t
 
 `POST /payments/orders` creates a Razorpay Test Mode order only after loading the approved offer saved by the negotiation. It verifies that the submitted amount and currency exactly match the approved offer before it calls Razorpay, then sends the amount in paise. Use only `rzp_test_` credentials in `.env`; live keys are rejected by this prototype.
 
+## Phase 5: audit and retries
+
+Every payment request requires an idempotency key. Repeating a successful key replays the original order response without creating another provider order. Failed attempts are recorded with a safe failure category; retry with a new idempotency key to create the next auditable attempt. `GET /negotiations/{negotiation_id}/payment-attempts` returns the ordered retry history.
+
 ## Run locally
 
 Install Python 3.12+ first, then run from the project directory:

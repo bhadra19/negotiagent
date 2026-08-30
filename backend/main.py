@@ -38,6 +38,7 @@ class SubstitutionRequest(BaseModel):
 
 class PaymentRequest(BaseModel):
     negotiation_id: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=8, max_length=128)
     amount: float = Field(gt=0)
     currency: str = Field(min_length=3, max_length=3)
 
@@ -83,13 +84,28 @@ def create_payment_order(request: PaymentRequest) -> dict:
     approved_offer = audit.get_approved_offer(request.negotiation_id)
     if approved_offer is None:
         raise HTTPException(status_code=404, detail="no approved offer exists for this negotiation")
+    attempt = audit.start_payment_attempt(request.negotiation_id, request.idempotency_key)
+    if not attempt["created"]:
+        if attempt["status"] == "created":
+            return {"order_id": attempt["order_id"], "amount_subunits": attempt["amount_subunits"], "currency": attempt["currency"], "receipt": "replayed", "replayed": True}
+        raise HTTPException(status_code=409, detail="payment attempt already failed; retry with a new idempotency key")
     try:
-        order = payments.create_order(approved_offer, request.amount, request.currency, "neg-" + request.negotiation_id)
+        receipt = "neg-" + request.negotiation_id.replace("-", "")[:24] + "-" + str(attempt["attempt_number"])
+        order = payments.create_order(approved_offer, request.amount, request.currency, receipt)
     except PaymentMismatchError as error:
+        audit.fail_payment_attempt(request.idempotency_key, "payment terms mismatch")
         raise HTTPException(status_code=400, detail=str(error)) from error
     except PaymentConfigurationError as error:
+        audit.fail_payment_attempt(request.idempotency_key, "payment provider not configured")
         raise HTTPException(status_code=503, detail=str(error)) from error
     except RuntimeError as error:
+        audit.fail_payment_attempt(request.idempotency_key, "payment provider error")
         raise HTTPException(status_code=502, detail=str(error)) from error
+    audit.complete_payment_attempt(request.idempotency_key, order.order_id, order.amount_subunits, order.currency)
     audit.log(request.negotiation_id, "payment_order_created", {"order_id": order.order_id, "amount_subunits": order.amount_subunits, "currency": order.currency})
-    return {"order_id": order.order_id, "amount_subunits": order.amount_subunits, "currency": order.currency, "receipt": order.receipt}
+    return {"order_id": order.order_id, "amount_subunits": order.amount_subunits, "currency": order.currency, "receipt": order.receipt, "replayed": False}
+
+
+@app.get("/negotiations/{negotiation_id}/payment-attempts")
+def payment_attempts(negotiation_id: str) -> dict:
+    return {"attempts": audit.list_payment_attempts(negotiation_id)}
