@@ -7,11 +7,13 @@ from agents.vendor_agents import DEFAULT_VENDORS, Offer
 from audit.logger import AuditLogger
 from config import settings
 from negotiation.engine import NegotiationEngine
+from negotiation.substitution import find_substitutions
 from security.policy_engine import PolicyEngine
+from security.trust import VENDOR_TRUST_SCORES
 
 app = FastAPI(title="NegotiAgent", version="0.1.0")
 engine = NegotiationEngine(max_rounds=settings.max_rounds)
-policy = PolicyEngine(set(DEFAULT_VENDORS), max_budget=1_000_000, max_rounds=settings.max_rounds)
+policy = PolicyEngine(set(DEFAULT_VENDORS), max_budget=1_000_000, max_rounds=settings.max_rounds, trust_scores=VENDOR_TRUST_SCORES)
 audit = AuditLogger(settings.database_path)
 advisor = NegotiationAdvisor(settings.openai_model)
 if settings.openai_enabled:
@@ -24,6 +26,12 @@ class NegotiationRequest(BaseModel):
     quantity: int = Field(gt=0, le=10_000)
     budget: float = Field(gt=0)
     vendor_ids: list[str] | None = None
+
+
+class SubstitutionRequest(BaseModel):
+    item: str = Field(min_length=1, max_length=120)
+    quantity: int = Field(gt=0, le=10_000)
+    budget: float = Field(gt=0)
 
 
 def serialize_offer(offer: Offer) -> dict:
@@ -52,3 +60,9 @@ def negotiate(request: NegotiationRequest) -> dict:
 @app.get("/negotiations/{negotiation_id}/audit")
 def audit_events(negotiation_id: str) -> dict:
     return {"events": audit.list_events(negotiation_id)}
+
+
+@app.post("/substitutions")
+def substitutions(request: SubstitutionRequest) -> dict:
+    options = find_substitutions(request.item, request.quantity, request.budget)
+    return {"substitutions": [{"item": option.substitute_item, "unit_price": option.unit_price, "total_price": option.total_price(request.quantity), "delivery_days": option.delivery_days, "reason": option.reason} for option in options]}

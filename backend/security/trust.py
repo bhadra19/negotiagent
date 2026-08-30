@@ -5,3 +5,9 @@ def trust_score(completed_orders: int, disputes: int, verified: bool) -> int:
         score += 10
     return max(0, min(100, score))
 
+
+VENDOR_TRUST_SCORES = {
+    "atlas-office": trust_score(12, 0, True),
+    "banyan-supply": trust_score(7, 0, True),
+    "cobalt-traders": trust_score(17, 1, True),
+}

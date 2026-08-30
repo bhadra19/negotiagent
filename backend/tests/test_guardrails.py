@@ -13,3 +13,9 @@ def test_policy_rejects_a_fourth_round():
     policy = PolicyEngine({"atlas-office"}, max_budget=1000)
     assert not policy.validate_offer(Offer("atlas-office", 10, 1, 1), 100, 4).allowed
 
+
+def test_policy_rejects_vendor_below_the_trust_threshold():
+    policy = PolicyEngine({"atlas-office"}, max_budget=1000, trust_scores={"atlas-office": 50})
+    decision = policy.validate_offer(Offer("atlas-office", 10, 1, 1), 100, 3)
+    assert not decision.allowed
+    assert decision.reason == "vendor trust score is below policy minimum"

@@ -14,6 +14,10 @@ NegotiAgent is a safe purchasing-negotiation prototype. It compares deterministi
 
 With `OPENAI_API_KEY` set, the API calls the OpenAI Responses API to produce a short explanation of the already-determined comparison. The advisor has no tool access and cannot select vendors, change the budget, bypass policy, or execute a payment. Without a key, the API returns a safe fallback explanation.
 
+## Phase 3: policy, trust, and substitution
+
+Every selected offer must come from an approved vendor, satisfy the budget and three-round limit, and meet the minimum deterministic trust score. `POST /substitutions` returns only catalogued alternatives that fit the submitted quantity and budget; it never invents an alternative.
+
 ## Run locally
 
 Install Python 3.12+ first, then run from the project directory:
