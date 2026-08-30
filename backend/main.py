@@ -8,6 +8,7 @@ from audit.logger import AuditLogger
 from config import settings
 from negotiation.engine import NegotiationEngine
 from negotiation.substitution import find_substitutions
+from payments.razorpay_client import PaymentConfigurationError, PaymentMismatchError, RazorpayPaymentClient
 from security.policy_engine import PolicyEngine
 from security.trust import VENDOR_TRUST_SCORES
 
@@ -16,6 +17,7 @@ engine = NegotiationEngine(max_rounds=settings.max_rounds)
 policy = PolicyEngine(set(DEFAULT_VENDORS), max_budget=1_000_000, max_rounds=settings.max_rounds, trust_scores=VENDOR_TRUST_SCORES)
 audit = AuditLogger(settings.database_path)
 advisor = NegotiationAdvisor(settings.openai_model)
+payments = RazorpayPaymentClient()
 if settings.openai_enabled:
     from openai import OpenAI
     advisor = NegotiationAdvisor(settings.openai_model, OpenAI())
@@ -32,6 +34,12 @@ class SubstitutionRequest(BaseModel):
     item: str = Field(min_length=1, max_length=120)
     quantity: int = Field(gt=0, le=10_000)
     budget: float = Field(gt=0)
+
+
+class PaymentRequest(BaseModel):
+    negotiation_id: str = Field(min_length=1)
+    amount: float = Field(gt=0)
+    currency: str = Field(min_length=3, max_length=3)
 
 
 def serialize_offer(offer: Offer) -> dict:
@@ -53,6 +61,8 @@ def negotiate(request: NegotiationRequest) -> dict:
     selected = result.selected_offer
     decision = policy.validate_offer(selected, request.budget, result.rounds_completed) if selected else None
     advisory = advisor.explain(request.item, request.budget, result.offers, selected)
+    if selected and decision and decision.allowed:
+        audit.save_approved_offer(negotiation_id, selected)
     audit.log(negotiation_id, "negotiation_completed", {"item": request.item, "quantity": request.quantity, "budget": request.budget, "rounds_completed": result.rounds_completed, "selected_vendor": selected.vendor_id if selected else None, "policy_allowed": decision.allowed if decision else False, "advisor_source": advisory.source})
     return {"negotiation_id": negotiation_id, "rounds_completed": result.rounds_completed, "offers": [serialize_offer(offer) for offer in result.offers], "selected_offer": serialize_offer(selected) if selected and decision and decision.allowed else None, "decision": decision.reason if decision else "no offer met the budget", "advisor": {"source": advisory.source, "rationale": advisory.text}}
 
@@ -66,3 +76,20 @@ def audit_events(negotiation_id: str) -> dict:
 def substitutions(request: SubstitutionRequest) -> dict:
     options = find_substitutions(request.item, request.quantity, request.budget)
     return {"substitutions": [{"item": option.substitute_item, "unit_price": option.unit_price, "total_price": option.total_price(request.quantity), "delivery_days": option.delivery_days, "reason": option.reason} for option in options]}
+
+
+@app.post("/payments/orders")
+def create_payment_order(request: PaymentRequest) -> dict:
+    approved_offer = audit.get_approved_offer(request.negotiation_id)
+    if approved_offer is None:
+        raise HTTPException(status_code=404, detail="no approved offer exists for this negotiation")
+    try:
+        order = payments.create_order(approved_offer, request.amount, request.currency, "neg-" + request.negotiation_id)
+    except PaymentMismatchError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except PaymentConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    audit.log(request.negotiation_id, "payment_order_created", {"order_id": order.order_id, "amount_subunits": order.amount_subunits, "currency": order.currency})
+    return {"order_id": order.order_id, "amount_subunits": order.amount_subunits, "currency": order.currency, "receipt": order.receipt}

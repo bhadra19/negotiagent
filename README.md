@@ -18,6 +18,10 @@ With `OPENAI_API_KEY` set, the API calls the OpenAI Responses API to produce a s
 
 Every selected offer must come from an approved vendor, satisfy the budget and three-round limit, and meet the minimum deterministic trust score. `POST /substitutions` returns only catalogued alternatives that fit the submitted quantity and budget; it never invents an alternative.
 
+## Phase 4: Razorpay Test Mode
+
+`POST /payments/orders` creates a Razorpay Test Mode order only after loading the approved offer saved by the negotiation. It verifies that the submitted amount and currency exactly match the approved offer before it calls Razorpay, then sends the amount in paise. Use only `rzp_test_` credentials in `.env`; live keys are rejected by this prototype.
+
 ## Run locally
 
 Install Python 3.12+ first, then run from the project directory:
@@ -34,4 +38,4 @@ Example request:
 
     Invoke-RestMethod -Method Post http://127.0.0.1:8000/negotiations -ContentType application/json -Body '{"item":"ergonomic chair","quantity":2,"budget":210}'
 
-Copy `.env.example` to `.env` before enabling OpenAI or Razorpay in later phases. No real payment capability exists in this phase.
+Copy `.env.example` to `.env` before enabling OpenAI or Razorpay. Razorpay is limited to Test Mode in this prototype.

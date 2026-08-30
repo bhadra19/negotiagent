@@ -12,5 +12,9 @@ class Settings:
     def openai_enabled(self) -> bool:
         return bool(os.getenv("OPENAI_API_KEY"))
 
+    @property
+    def razorpay_enabled(self) -> bool:
+        return bool(os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET"))
+
 
 settings = Settings()
