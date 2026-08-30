@@ -1,0 +1,7 @@
+{
+  "cases": [
+    { "case_id": "chairs-within-budget", "item": "ergonomic chair", "quantity": 2, "budget": 210 },
+    { "case_id": "chairs-over-constrained", "item": "ergonomic chair", "quantity": 1, "budget": 50 },
+    { "case_id": "keyboard-comparison", "item": "wireless keyboard", "quantity": 3, "budget": 300 }
+  ]
+}

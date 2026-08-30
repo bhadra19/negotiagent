@@ -38,8 +38,16 @@ Install Python 3.12+ first, then run from the project directory:
 
 Run tests from `backend` with `python -m pytest`.
 
+Run the React demo from `frontend` with `npm install` followed by `npm run dev`. It expects the API at `http://127.0.0.1:8000`; set `VITE_API_BASE_URL` to override it.
+
+For a containerized demo, copy `.env.example` to `.env` and run `docker compose up --build`.
+
 Example request:
 
     Invoke-RestMethod -Method Post http://127.0.0.1:8000/negotiations -ContentType application/json -Body '{"item":"ergonomic chair","quantity":2,"budget":210}'
 
 Copy `.env.example` to `.env` before enabling OpenAI or Razorpay. Razorpay is limited to Test Mode in this prototype.
+
+## Phase 6: demo and batch evaluation
+
+The React/Vite demo UI shows negotiation offers, the policy decision, AI explanation, and Test Mode order creation. `demo-data/batch-scenarios.json` is a repeatable payload for `POST /batch/negotiations`; batch evaluation intentionally does not invoke the LLM or payment provider.

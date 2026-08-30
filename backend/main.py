@@ -1,6 +1,7 @@
 from dataclasses import asdict
 from uuid import uuid4
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from agents.negotiation_agent import NegotiationAdvisor
 from agents.vendor_agents import DEFAULT_VENDORS, Offer
@@ -13,6 +14,7 @@ from security.policy_engine import PolicyEngine
 from security.trust import VENDOR_TRUST_SCORES
 
 app = FastAPI(title="NegotiAgent", version="0.1.0")
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
 engine = NegotiationEngine(max_rounds=settings.max_rounds)
 policy = PolicyEngine(set(DEFAULT_VENDORS), max_budget=1_000_000, max_rounds=settings.max_rounds, trust_scores=VENDOR_TRUST_SCORES)
 audit = AuditLogger(settings.database_path)
@@ -43,6 +45,14 @@ class PaymentRequest(BaseModel):
     currency: str = Field(min_length=3, max_length=3)
 
 
+class BatchNegotiationItem(NegotiationRequest):
+    case_id: str = Field(min_length=1, max_length=64)
+
+
+class BatchNegotiationRequest(BaseModel):
+    cases: list[BatchNegotiationItem] = Field(min_length=1, max_length=25)
+
+
 def serialize_offer(offer: Offer) -> dict:
     return {**asdict(offer), "total_price": offer.total_price}
 
@@ -71,6 +81,22 @@ def negotiate(request: NegotiationRequest) -> dict:
 @app.get("/negotiations/{negotiation_id}/audit")
 def audit_events(negotiation_id: str) -> dict:
     return {"events": audit.list_events(negotiation_id)}
+
+
+@app.post("/batch/negotiations")
+def batch_negotiate(request: BatchNegotiationRequest) -> dict:
+    """Deterministic batch evaluation; it does not call the LLM or create payments."""
+    results = []
+    for item in request.cases:
+        try:
+            result = engine.run(item.quantity, item.budget, item.vendor_ids)
+        except ValueError as error:
+            results.append({"case_id": item.case_id, "status": "rejected", "reason": str(error), "selected_offer": None})
+            continue
+        selected = result.selected_offer
+        decision = policy.validate_offer(selected, item.budget, result.rounds_completed) if selected else None
+        results.append({"case_id": item.case_id, "status": "approved" if decision and decision.allowed else "rejected", "reason": decision.reason if decision else "no offer met the budget", "selected_offer": serialize_offer(selected) if selected and decision and decision.allowed else None})
+    return {"results": results}
 
 
 @app.post("/substitutions")
